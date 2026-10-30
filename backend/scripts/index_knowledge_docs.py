@@ -68,6 +68,37 @@ def main() -> None:
         help="Optional category override for the indexed file",
     )
     parser.add_argument(
+        "--title",
+        type=str,
+        default=None,
+        help="Document title override",
+    )
+    parser.add_argument(
+        "--source",
+        type=str,
+        default=None,
+        help="Document source citation override",
+    )
+    parser.add_argument(
+        "--version",
+        dest="document_version",
+        type=str,
+        default=None,
+        help="Document version (e.g. 22.0)",
+    )
+    parser.add_argument(
+        "--reporting-period",
+        type=str,
+        default=None,
+        help="Reporting period (e.g. FY 2025-26)",
+    )
+    parser.add_argument(
+        "--publication-date",
+        type=str,
+        default=None,
+        help="Publication date (e.g. August 2026)",
+    )
+    parser.add_argument(
         "--force",
         action="store_true",
         help="Force reindexing of documents even if content hash matches",
@@ -121,12 +152,20 @@ def main() -> None:
     # 3. Single file indexing
     if args.file:
         file_path = Path(args.file)
-        if not file_path.is_absolute():
-            file_path = backend_dir / file_path
+        if not file_path.exists():
+            if (backend_dir / args.file).exists():
+                file_path = backend_dir / args.file
+            elif (Path.cwd() / args.file).exists():
+                file_path = Path.cwd() / args.file
         print(f"Indexing single file: {file_path}...")
         result = DocumentService.index_single_document(
             file_path=file_path,
             category=args.category,
+            source=args.source,
+            title=args.title,
+            document_version=args.document_version,
+            reporting_period=args.reporting_period,
+            publication_date=args.publication_date,
             force_reindex=args.force,
         )
         print(f"Result: {result}")

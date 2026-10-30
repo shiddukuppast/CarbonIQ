@@ -91,6 +91,27 @@ class DocumentService:
                         metadata["author"] = reader.metadata.author
                     if reader.metadata.creation_date:
                         metadata["publication_date"] = str(reader.metadata.creation_date)
+
+                # Heuristic auto-detection from front pages if PDF metadata is omitted
+                if pages_text:
+                    front_sample = "\n".join(pages_text[:3])
+                    if not metadata.get("title") and "CO2 Baseline Database" in front_sample:
+                        metadata["title"] = "CO2 Baseline Database for the Indian Power Sector"
+                    if not metadata.get("source") and "Central Electricity Authority" in front_sample:
+                        metadata["source"] = "Central Electricity Authority"
+                    v_match = re.search(r"Version\s+([\d\.]+)", front_sample, re.IGNORECASE)
+                    if v_match and not metadata.get("document_version"):
+                        metadata["document_version"] = v_match.group(1)
+                    d_match = re.search(
+                        r"\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4}\b",
+                        front_sample,
+                        re.IGNORECASE,
+                    )
+                    if d_match and not metadata.get("publication_date"):
+                        metadata["publication_date"] = d_match.group(0)
+                    rp_match = re.search(r"\bFY\s+\d{4}[-–]\d{2,4}\b", front_sample, re.IGNORECASE)
+                    if rp_match and not metadata.get("reporting_period"):
+                        metadata["reporting_period"] = rp_match.group(0)
                 return cls.clean_text("\n\n".join(pages_text)), metadata
             except Exception as e:
                 logger.warning(f"Error parsing PDF file {file_path}: {e}")
@@ -197,6 +218,11 @@ class DocumentService:
         file_path: Path,
         category: Optional[str] = None,
         source: Optional[str] = None,
+        title: Optional[str] = None,
+        document_version: Optional[str] = None,
+        reporting_period: Optional[str] = None,
+        publication_date: Optional[str] = None,
+        extra_metadata: Optional[Dict[str, Any]] = None,
         force_reindex: bool = False,
     ) -> Dict[str, Any]:
         """
@@ -235,10 +261,12 @@ class DocumentService:
         inferred_category = category or doc_meta.get("category") or file_path.parent.name
         norm_category = normalize_category(inferred_category)
 
-        # Document title
-        doc_title = doc_meta.get("title") or file_path.stem.replace("_", " ").replace("-", " ").title()
+        # Document title & attributes
+        doc_title = title or doc_meta.get("title") or file_path.stem.replace("_", " ").replace("-", " ").title()
         doc_source = source or doc_meta.get("source") or f"CarbonIQ Knowledge Base ({file_path.name})"
-        pub_date = doc_meta.get("publication_date")
+        pub_date = publication_date or doc_meta.get("publication_date")
+        doc_version = document_version or doc_meta.get("document_version")
+        rep_period = reporting_period or doc_meta.get("reporting_period")
 
         # Chunk the cleaned text
         raw_chunks = cls.chunk_text(text, chunk_size=650, chunk_overlap=120)
@@ -265,7 +293,11 @@ class DocumentService:
                 "file_name": file_path.name,
                 "content_hash": content_hash,
                 "publication_date": pub_date,
+                "document_version": doc_version,
+                "reporting_period": rep_period,
             }
+            if extra_metadata:
+                payload.update(extra_metadata)
             points_to_upsert.append({
                 "id": chunk_id,
                 "vector": emb,

@@ -335,6 +335,8 @@ class AiAssistantService:
                     similarity_score=ch.get("similarity_score"),
                     snippet=text[:350],
                     doc_id=ch.get("doc_id"),
+                    document_version=ch.get("document_version"),
+                    reporting_period=ch.get("reporting_period"),
                 )
             )
 

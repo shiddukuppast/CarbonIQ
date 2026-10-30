@@ -110,7 +110,8 @@ class RagRetrievalService:
             seen_sources = set()
 
             for item in results:
-                src_key = f"{item['title']} ({item['source']})"
+                v_tag = f" v{item['document_version']}" if item.get("document_version") else ""
+                src_key = f"{item['title']}{v_tag} ({item['source']})"
                 if src_key not in seen_sources:
                     seen_sources.add(src_key)
                     formatted_sources.append(src_key)

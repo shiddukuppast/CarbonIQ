@@ -358,6 +358,9 @@ class VectorDbService:
                     "doc_id": payload.get("doc_id"),
                     "chunk_index": payload.get("chunk_index", 0),
                     "publication_date": payload.get("publication_date"),
+                    "document_version": payload.get("document_version"),
+                    "reporting_period": payload.get("reporting_period"),
+                    "file_name": payload.get("file_name"),
                 }
             )
         return results

@@ -207,6 +207,8 @@ export interface KnowledgeSourceItem {
   similarity_score?: number
   snippet?: string
   doc_id?: string
+  document_version?: string
+  reporting_period?: string
 }
 
 export interface StructuredAiPayload {

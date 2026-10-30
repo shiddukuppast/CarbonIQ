@@ -62,6 +62,8 @@ class KnowledgeSourceItem(BaseModel):
     similarity_score: Optional[float] = None
     snippet: Optional[str] = None
     doc_id: Optional[str] = None
+    document_version: Optional[str] = None
+    reporting_period: Optional[str] = None
 
 
 class StructuredAiPayload(BaseModel):

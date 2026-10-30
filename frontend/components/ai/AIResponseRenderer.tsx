@@ -62,6 +62,8 @@ export interface KnowledgeSource {
   similarity_score?: number
   snippet?: string
   doc_id?: string
+  document_version?: string
+  reporting_period?: string
 }
 
 export interface StructuredAIResponse {
@@ -940,9 +942,16 @@ export function AIResponseRenderer({
                   key={`knowledge-${i}`}
                   className="rounded-lg border border-[#D5E3D3] bg-white/80 px-3 py-2 text-[11px]"
                 >
-                  <div className="font-semibold text-[#28352D]">{item.title}</div>
+                  <div className="font-semibold text-[#28352D] flex items-center justify-between">
+                    <span>{item.title}</span>
+                    {item.document_version && (
+                      <span className="text-[10px] font-normal text-[#285943] bg-[#EBF3E8] px-1.5 py-0.5 rounded">
+                        v{item.document_version}
+                      </span>
+                    )}
+                  </div>
                   <div className="mt-0.5 text-[#657668]">
-                    {item.source}{item.category ? ` · ${item.category}` : ''}
+                    {item.source}{item.category ? ` · ${item.category}` : ''}{item.reporting_period ? ` (${item.reporting_period})` : ''}
                   </div>
                   {item.snippet && (
                     <p className="mt-1 leading-relaxed text-[#4F6354]">{item.snippet}</p>
