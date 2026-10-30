@@ -158,45 +158,35 @@ class DocumentService:
         """
         if not text or not text.strip():
             return []
+        if chunk_size <= 0 or chunk_overlap < 0 or chunk_overlap >= chunk_size:
+            raise ValueError("chunk_size must be positive and chunk_overlap must be smaller than chunk_size.")
 
-        # Split initially by paragraphs
-        paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+        text = cls.clean_text(text)
         chunks: List[str] = []
-        current_chunk = ""
+        start = 0
+        while start < len(text):
+            hard_end = min(start + chunk_size, len(text))
+            end = hard_end
+            if hard_end < len(text):
+                search_start = start + (chunk_size * 3 // 5)
+                segment = text[search_start:hard_end]
+                sentence_breaks = list(re.finditer(r"(?<=[.!?])\s+|\n\n", segment))
+                breaks = sentence_breaks or list(re.finditer(r"\s+", segment))
+                if breaks:
+                    end = search_start + breaks[-1].start()
 
-        for para in paragraphs:
-            if len(para) > chunk_size:
-                # If paragraph itself is too large, split by sentences
-                sentences = re.split(r"(?<=[.!?])\s+", para)
-                for sent in sentences:
-                    sent = sent.strip()
-                    if not sent:
-                        continue
-                    if len(current_chunk) + len(sent) + 1 <= chunk_size:
-                        current_chunk = (current_chunk + " " + sent).strip()
-                    else:
-                        if current_chunk:
-                            chunks.append(current_chunk)
-                            # Keep overlap from tail of previous chunk
-                            overlap_text = current_chunk[-chunk_overlap:] if len(current_chunk) > chunk_overlap else current_chunk
-                            current_chunk = (overlap_text + " " + sent).strip()
-                        else:
-                            # Long single sentence, chunk with slice
-                            chunks.append(sent[:chunk_size])
-                            current_chunk = sent[chunk_size - chunk_overlap:]
-            else:
-                if len(current_chunk) + len(para) + 1 <= chunk_size:
-                    current_chunk = (current_chunk + "\n\n" + para).strip()
-                else:
-                    if current_chunk:
-                        chunks.append(current_chunk)
-                        overlap_text = current_chunk[-chunk_overlap:] if len(current_chunk) > chunk_overlap else current_chunk
-                        current_chunk = (overlap_text + "\n\n" + para).strip()
-                    else:
-                        current_chunk = para
+            chunk = text[start:end].strip()
+            if chunk:
+                chunks.append(chunk)
+            if end >= len(text):
+                break
 
-        if current_chunk:
-            chunks.append(current_chunk)
+            next_start = max(start + 1, end - chunk_overlap)
+            while next_start < end and not text[next_start].isspace():
+                next_start += 1
+            while next_start < end and text[next_start].isspace():
+                next_start += 1
+            start = next_start if next_start > start else end
 
         # Filter out trivial chunks
         return [c for c in chunks if len(c.strip()) > 25]
@@ -227,6 +217,20 @@ class DocumentService:
         doc_id = hashlib.sha256(norm_path.encode("utf-8")).hexdigest()[:16]
         content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
 
+        if not VectorDbService.is_available():
+            return {
+                "status": "error",
+                "error": VectorDbService.get_last_error() or "Qdrant is unavailable.",
+                "file": file_path.name,
+            }
+        if not force_reindex and VectorDbService.get_document_content_hash(doc_id) == content_hash:
+            return {
+                "status": "unchanged",
+                "doc_id": doc_id,
+                "file": file_path.name,
+                "chunks_indexed": 0,
+            }
+
         # Inferred or explicit category
         inferred_category = category or doc_meta.get("category") or file_path.parent.name
         norm_category = normalize_category(inferred_category)
@@ -241,11 +245,10 @@ class DocumentService:
         if not raw_chunks:
             return {"status": "skipped", "reason": "No valid text chunks produced.", "file": file_path.name}
 
-        # Clean prior index points for this document ID to ensure updates don't leave stale chunks
-        VectorDbService.delete_document(doc_id)
-
         # Generate embeddings in batch locally via Sentence Transformers
         embeddings = EmbeddingService.embed_batch(raw_chunks)
+        if len(embeddings) != len(raw_chunks):
+            raise ValueError("Embedding batch size does not match the document chunk count.")
 
         # Build Qdrant points
         points_to_upsert = []
@@ -269,7 +272,22 @@ class DocumentService:
                 "payload": payload,
             })
 
+        # Replace old points only after text extraction and embedding succeed.
+        if not VectorDbService.delete_document(doc_id):
+            return {
+                "status": "error",
+                "error": VectorDbService.get_last_error() or "Existing document chunks could not be removed.",
+                "doc_id": doc_id,
+                "file": file_path.name,
+            }
         count = VectorDbService.upsert_chunks(points_to_upsert)
+        if count != len(points_to_upsert):
+            return {
+                "status": "error",
+                "error": f"Qdrant stored {count} of {len(points_to_upsert)} document chunks.",
+                "doc_id": doc_id,
+                "file": file_path.name,
+            }
         return {
             "status": "success",
             "doc_id": doc_id,
@@ -325,6 +343,8 @@ class DocumentService:
                         if res.get("status") == "success":
                             total_chunks += res.get("chunks_indexed", 0)
                             processed_files.append(res)
+                        elif res.get("status") == "unchanged":
+                            processed_files.append(res)
                         elif res.get("status") == "error":
                             errors.append(res)
                     except Exception as err:
@@ -339,4 +359,3 @@ class DocumentService:
             "details": processed_files,
             "errors": errors,
         }
-

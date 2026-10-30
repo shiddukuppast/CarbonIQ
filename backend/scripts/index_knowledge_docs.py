@@ -95,8 +95,10 @@ def main() -> None:
         status = VectorDbService.get_status()
         print(f"Collection:       {status['collection_name']}")
         print(f"Status:           {'CONNECTED' if status['is_available'] else 'OFFLINE'}")
+        print(f"Collection Exists: {status['collection_exists']}")
         print(f"Storage Mode:     {status['mode']}")
         print(f"Vector Dimension: {status['vector_dimension']}")
+        print(f"Similarity:       {status['vector_distance'] or 'not verified'}")
         print(f"Total Vectors:    {status['total_vectors']}")
         if status.get("storage_path"):
             print(f"Storage Path:     {status['storage_path']}")
@@ -157,4 +159,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

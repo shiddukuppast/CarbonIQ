@@ -43,6 +43,7 @@ from app.schemas.ai import (
     StructuredAiPayload,
 )
 from app.services.ai_context_service import AiContextService
+from app.services.rag_retrieval_service import RagRetrievalService
 from app.utils.dates import utc_iso
 from app.utils.ids import generate_id
 
@@ -323,26 +324,108 @@ class AiAssistantService:
         knowledge_items: List[KnowledgeSourceItem] = []
 
         for ch in rag_info.get("chunks", []):
+            text = ch.get("text") or ch.get("snippet")
+            if not text or not ch.get("title") or not ch.get("source"):
+                continue
             knowledge_items.append(
                 KnowledgeSourceItem(
-                    title=ch.get("title", "Sustainability Document"),
-                    source=ch.get("source", "CarbonIQ Knowledge Base"),
+                    title=ch["title"],
+                    source=ch["source"],
                     category=ch.get("category"),
                     similarity_score=ch.get("similarity_score"),
-                    snippet=ch.get("snippet") or ch.get("text", "")[:350],
+                    snippet=text[:350],
                     doc_id=ch.get("doc_id"),
                 )
             )
 
-        # Merge supporting sources deterministically
-        combined_sources = list(payload.supporting_sources)
-        for s in retrieved_sources:
-            if s not in combined_sources:
-                combined_sources.append(s)
-        payload.supporting_sources = combined_sources
+        # LLM-provided citations are untrusted; only Qdrant payload metadata is citable.
+        payload.supporting_sources = list(dict.fromkeys(retrieved_sources))
         payload.retrieved_knowledge = knowledge_items
+        payload.knowledge_retrieval_status = rag_info.get("retrieval_status")
+        for limitation in context.get("data_limitations", []):
+            if limitation not in payload.data_limitations:
+                payload.data_limitations.append(limitation)
+        knowledge_limitation = rag_info.get("knowledge_limitation")
+        if knowledge_limitation:
+            limitation = f"Knowledge Base: {knowledge_limitation}"
+            if limitation not in payload.data_limitations:
+                payload.data_limitations.append(limitation)
 
         return knowledge_items
+
+    @classmethod
+    async def _answer_without_workspace_records(
+        cls,
+        question: str,
+        module: str,
+        category: Optional[str],
+        no_data_message: str,
+        data_limitations: List[str],
+    ) -> AiChatResponse:
+        """Answer conceptual questions from retrieved knowledge when workspace data is absent."""
+        timestamp = utc_iso()
+        rag_info = await RagRetrievalService.retrieve_relevant_knowledge(
+            query=question,
+            category=category,
+        )
+        context: Dict[str, Any] = {
+            "module": module,
+            "has_records": False,
+            "data_limitations": list(data_limitations),
+            "retrieved_knowledge": {
+                "has_knowledge": rag_info.get("has_knowledge", False),
+                "retrieval_status": rag_info.get("retrieval_status"),
+                "sources": rag_info.get("sources", []),
+                "chunks": [
+                    {
+                        "title": chunk.get("title"),
+                        "source": chunk.get("source"),
+                        "category": chunk.get("category"),
+                        "text": chunk.get("text"),
+                        "similarity_score": chunk.get("similarity_score"),
+                        "doc_id": chunk.get("doc_id"),
+                    }
+                    for chunk in rag_info.get("chunks", [])
+                ],
+                "knowledge_limitation": rag_info.get("knowledge_limitation"),
+            },
+        }
+
+        payload = StructuredAiPayload(
+            intent="direct",
+            direct_answer=no_data_message,
+            data_limitations=list(data_limitations),
+        )
+        if rag_info.get("has_knowledge"):
+            instruction = (
+                "Answer the user's sustainability knowledge question using only the supplied retrieved "
+                "document text. Workspace activity records are unavailable, so do not claim workspace "
+                "measurements, emissions, savings, or historical results. Do not invent numerical values "
+                "or cite sources other than the supplied retrieved documents. Give qualitative actions "
+                "only unless the documents explicitly support a value. Return the requested JSON schema."
+            )
+            reply = await cls._call_llm(
+                system_instruction=instruction,
+                user_query=question,
+                grounded_context=context,
+                max_tokens=450,
+            )
+            payload = parse_structured_ai_reply(
+                reply,
+                default_intent="direct",
+                default_answer=no_data_message,
+            )
+
+        knowledge_items = cls._attach_rag_knowledge(payload, context)
+        return AiChatResponse(
+            id=generate_id(f"ai_{module}"),
+            content=payload.direct_answer,
+            timestamp=timestamp,
+            structured_payload=payload,
+            supporting_sources=payload.supporting_sources,
+            retrieved_knowledge=knowledge_items,
+            meta={"knowledge_retrieval_status": payload.knowledge_retrieval_status},
+        )
 
     @classmethod
     async def _call_llm(
@@ -524,14 +607,14 @@ class AiAssistantService:
 
         if not context.get("has_records"):
             empty_msg = "No electricity consumption records found in your workspace yet. Please log monthly meter readings to enable personalized AI energy analysis."
-            return AiChatResponse(
-                id=chat_id,
-                content=empty_msg,
-                timestamp=timestamp,
-                structured_payload=StructuredAiPayload(
-                    intent="direct",
-                    direct_answer=empty_msg,
-                    data_limitations=context.get("data_limitations", ["No electricity records currently logged for this workspace."]),
+            return await cls._answer_without_workspace_records(
+                question=sanitized_q,
+                module="electricity",
+                category="Electricity and Energy Efficiency",
+                no_data_message=empty_msg,
+                data_limitations=context.get(
+                    "data_limitations",
+                    ["No electricity records currently logged for this workspace."],
                 ),
             )
 
@@ -681,14 +764,14 @@ class AiAssistantService:
 
         if not context.get("has_records"):
             empty_msg = "No transportation records or fleet routes found in your workspace yet. Please configure bus corridors or log trip mileage to enable mobility analysis."
-            return AiChatResponse(
-                id=chat_id,
-                content=empty_msg,
-                timestamp=timestamp,
-                structured_payload=StructuredAiPayload(
-                    intent="direct",
-                    direct_answer=empty_msg,
-                    data_limitations=context.get("data_limitations", ["No transportation records or bus routes currently configured for this workspace."]),
+            return await cls._answer_without_workspace_records(
+                question=sanitized_q,
+                module="transportation",
+                category="Transportation and Sustainable Mobility",
+                no_data_message=empty_msg,
+                data_limitations=context.get(
+                    "data_limitations",
+                    ["No transportation records or bus routes currently configured for this workspace."],
                 ),
             )
 
@@ -834,14 +917,14 @@ class AiAssistantService:
 
         if not context.get("has_records"):
             empty_msg = "No waste stream records found in your workspace yet. Please log waste generation categories and treatment methods to enable circularity analysis."
-            return AiChatResponse(
-                id=chat_id,
-                content=empty_msg,
-                timestamp=timestamp,
-                structured_payload=StructuredAiPayload(
-                    intent="direct",
-                    direct_answer=empty_msg,
-                    data_limitations=context.get("data_limitations", ["No waste records currently logged for this workspace."]),
+            return await cls._answer_without_workspace_records(
+                question=sanitized_q,
+                module="waste",
+                category="Waste Management and Circular Economy",
+                no_data_message=empty_msg,
+                data_limitations=context.get(
+                    "data_limitations",
+                    ["No waste records currently logged for this workspace."],
                 ),
             )
 
@@ -980,15 +1063,14 @@ class AiAssistantService:
 
         if not context.get("has_records"):
             empty_msg = "No emissions records found across Electricity, Transportation, or Waste in your workspace yet. Please add activity records to enable cross-category portfolio insights."
-            return AiChatResponse(
-                id=chat_id,
-                content=empty_msg,
-                timestamp=timestamp,
-                structured_report=None,
-                structured_payload=StructuredAiPayload(
-                    intent="direct",
-                    direct_answer=empty_msg,
-                    data_limitations=context.get("data_limitations", ["No activity records logged across any emission scopes in this workspace."]),
+            return await cls._answer_without_workspace_records(
+                question=sanitized_q,
+                module="insights",
+                category=None,
+                no_data_message=empty_msg,
+                data_limitations=context.get(
+                    "data_limitations",
+                    ["No activity records logged across any emission scopes in this workspace."],
                 ),
             )
 

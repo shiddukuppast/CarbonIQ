@@ -67,6 +67,7 @@ class KnowledgeSourceItem(BaseModel):
 class StructuredAiPayload(BaseModel):
     intent: Optional[str] = "direct"  # "direct" | "analytical" | "comparative" | "recommendation" | "comprehensive"
     direct_answer: str
+    knowledge_retrieval_status: Optional[str] = None
     explanation: Optional[str] = None
     reporting_period: Optional[str] = None
     metrics: List[MetricItem] = Field(default_factory=list)

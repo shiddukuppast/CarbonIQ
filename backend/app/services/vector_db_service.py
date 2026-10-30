@@ -16,15 +16,27 @@ class VectorDbService:
     """
     Manages connections, collections, and queries to the Qdrant Vector Database.
     Supports:
-    1. Remote cloud/cluster Qdrant deployment (configured via QDRANT_URL and QDRANT_API_KEY).
-    2. Local persistent on-disk embedded storage (via QDRANT_STORAGE_PATH).
-    3. Resilient fallback and error handling if Qdrant is unavailable.
+    Uses the configured remote Qdrant endpoint when set, and local persistent
+    storage only when no remote endpoint is configured.
     """
 
     _client: Optional[QdrantClient] = None
     _collection_initialized: bool = False
     _is_available: bool = False
     _init_error: Optional[str] = None
+    _active_mode: str = "uninitialized"
+
+    @classmethod
+    def sanitize_error(cls, error: Exception) -> str:
+        message = str(error) or error.__class__.__name__
+        for secret in (settings.QDRANT_API_KEY, settings.QDRANT_URL):
+            if secret:
+                message = message.replace(secret, "[redacted]")
+        return message
+
+    @classmethod
+    def get_last_error(cls) -> Optional[str]:
+        return cls._init_error
 
     @classmethod
     def resolve_storage_path(cls) -> Path:
@@ -42,24 +54,25 @@ class VectorDbService:
         if cls._client is not None:
             return cls._client
 
-        # 1. Attempt remote Qdrant connection if URL is configured
+        # A configured cloud endpoint is authoritative; never silently use a
+        # different local collection when that endpoint is unavailable.
         if settings.QDRANT_URL and settings.QDRANT_URL.strip():
+            client: Optional[QdrantClient] = None
             try:
                 import socket
                 import urllib.parse
 
                 raw_url = settings.QDRANT_URL.strip()
                 parsed = urllib.parse.urlparse(raw_url)
-                host = parsed.hostname or raw_url.replace("https://", "").replace("http://", "").split("/")[0].split(":")[0]
+                host = parsed.hostname
+                if not host:
+                    raise ValueError("QDRANT_URL does not contain a valid hostname.")
                 port = parsed.port or (443 if parsed.scheme == "https" else 6333)
 
-                # Bounded socket probe to ensure DNS and TCP handshake succeed within 1.5s
-                probe_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                probe_sock.settimeout(1.5)
-                probe_sock.connect((host, port))
-                probe_sock.close()
+                with socket.create_connection((host, port), timeout=1.5):
+                    pass
 
-                logger.info(f"Connecting to remote Qdrant cluster: {raw_url}")
+                logger.info("Connecting to configured remote Qdrant cluster.")
                 client = QdrantClient(
                     url=raw_url,
                     api_key=settings.QDRANT_API_KEY.strip() if settings.QDRANT_API_KEY else None,
@@ -71,15 +84,27 @@ class VectorDbService:
                 cls._is_available = True
                 cls._active_mode = "remote_cluster"
                 cls._init_error = None
-                cls.ensure_collection()
+                if not cls.ensure_collection():
+                    cls._is_available = False
+                    try:
+                        client.close()
+                    except Exception:
+                        logger.debug("Unable to close invalid remote Qdrant client.")
+                    cls._client = None
+                    return None
                 return cls._client
             except Exception as remote_err:
-                logger.warning(
-                    f"Remote Qdrant cluster unreachable ({remote_err}). "
-                    f"Falling back to local persistent Qdrant storage at {settings.QDRANT_STORAGE_PATH}."
-                )
+                cls._is_available = False
+                cls._active_mode = "remote_cluster"
+                cls._init_error = cls.sanitize_error(remote_err)
+                if client is not None:
+                    try:
+                        client.close()
+                    except Exception:
+                        logger.debug("Unable to close failed remote Qdrant client.")
+                logger.warning("Configured remote Qdrant connection failed: %s", cls._init_error)
+                return None
 
-        # 2. Local persistent storage fallback
         try:
             storage_path = cls.resolve_storage_path()
             logger.info(f"Using local persistent Qdrant storage at: {storage_path}")
@@ -87,15 +112,24 @@ class VectorDbService:
             cls._is_available = True
             cls._active_mode = "local_persistent"
             cls._init_error = None
-            cls.ensure_collection()
+            if not cls.ensure_collection():
+                cls._is_available = False
+                try:
+                    cls._client.close()
+                except Exception:
+                    logger.debug("Unable to close invalid local Qdrant client.")
+                cls._client = None
+                return None
             return cls._client
         except Exception as local_err:
             cls._client = None
             cls._is_available = False
-            cls._init_error = str(local_err)
+            cls._active_mode = "local_persistent"
+            cls._init_error = cls.sanitize_error(local_err)
             logger.warning(
-                f"Could not initialize local Qdrant storage: {local_err}. "
-                "RAG features will gracefully report knowledge base unavailable."
+                "Could not initialize local Qdrant storage: %s. "
+                "RAG features will gracefully report knowledge base unavailable.",
+                cls._init_error,
             )
             return None
 
@@ -112,22 +146,35 @@ class VectorDbService:
         client = cls.get_client()
         available = client is not None and cls._is_available
         total_vectors = 0
+        collection_exists = False
+        vector_distance = None
         if available:
             try:
+                info = client.get_collection(collection_name=settings.QDRANT_COLLECTION_NAME)
+                collection_exists = True
+                vectors = info.config.params.vectors
+                if isinstance(vectors, models.VectorParams):
+                    vector_distance = vectors.distance.value
+                elif isinstance(vectors, dict):
+                    default_vector = vectors.get("")
+                    if default_vector is not None:
+                        vector_distance = default_vector.distance.value
                 count_info = client.count(collection_name=settings.QDRANT_COLLECTION_NAME)
                 total_vectors = count_info.count
-            except Exception:
-                total_vectors = 0
+            except Exception as status_err:
+                cls._init_error = cls.sanitize_error(status_err)
 
         mode = cls._active_mode if cls._active_mode != "uninitialized" else ("remote_cluster" if settings.QDRANT_URL else "local_persistent")
         return {
             "is_available": available,
             "mode": mode,
             "collection_name": settings.QDRANT_COLLECTION_NAME,
+            "collection_exists": collection_exists,
             "total_vectors": total_vectors,
             "vector_dimension": EmbeddingService.get_dimension(),
+            "vector_distance": vector_distance,
             "storage_path": str(cls.resolve_storage_path()) if mode == "local_persistent" else None,
-            "qdrant_url": settings.QDRANT_URL if mode == "remote_cluster" else None,
+            "qdrant_url": None,
             "init_error": cls._init_error,
         }
 
@@ -168,10 +215,30 @@ class VectorDbService:
                 except Exception as idx_err:
                     logger.debug(f"Payload index creation note: {idx_err}")
 
+            info = cls._client.get_collection(collection_name=collection_name)
+            vectors = info.config.params.vectors
+            if isinstance(vectors, models.VectorParams):
+                vector_params = vectors
+            elif isinstance(vectors, dict):
+                vector_params = vectors.get("")
+            else:
+                vector_params = None
+            if vector_params is None:
+                raise ValueError("Qdrant collection does not have a default unnamed vector configuration.")
+            if vector_params.size != dim or vector_params.distance != models.Distance.COSINE:
+                raise ValueError(
+                    f"Qdrant collection '{collection_name}' is configured for "
+                    f"size={vector_params.size}, distance={vector_params.distance}; "
+                    f"expected size={dim}, distance=Cosine."
+                )
+
             cls._collection_initialized = True
+            cls._init_error = None
             return True
         except Exception as e:
-            logger.error(f"Error ensuring Qdrant collection '{collection_name}': {e}")
+            cls._init_error = cls.sanitize_error(e)
+            cls._is_available = False
+            logger.error("Error ensuring Qdrant collection '%s': %s", collection_name, cls._init_error)
             cls._collection_initialized = False
             return False
 
@@ -188,11 +255,17 @@ class VectorDbService:
         if client is None or not chunks:
             return 0
 
-        cls.ensure_collection()
+        if not cls.ensure_collection():
+            raise RuntimeError(cls.get_last_error() or "Qdrant collection is unavailable.")
         collection_name = settings.QDRANT_COLLECTION_NAME
 
         points = []
         for ch in chunks:
+            vector = ch.get("vector")
+            if not isinstance(vector, list) or len(vector) != EmbeddingService.get_dimension():
+                raise ValueError(
+                    f"Invalid embedding dimension: expected {EmbeddingService.get_dimension()} values."
+                )
             point_id = ch.get("id")
             if not point_id:
                 point_id = str(uuid.uuid4())
@@ -206,7 +279,7 @@ class VectorDbService:
             points.append(
                 models.PointStruct(
                     id=point_id,
-                    vector=ch["vector"],
+                    vector=vector,
                     payload=ch["payload"],
                 )
             )
@@ -233,9 +306,15 @@ class VectorDbService:
         """
         client = cls.get_client()
         if client is None:
-            return []
+            raise RuntimeError(cls.get_last_error() or "Qdrant is unavailable.")
 
-        cls.ensure_collection()
+        if len(query_vector) != EmbeddingService.get_dimension():
+            raise ValueError(
+                f"Invalid query embedding dimension: expected {EmbeddingService.get_dimension()}, "
+                f"received {len(query_vector)}."
+            )
+        if not cls.ensure_collection():
+            raise RuntimeError(cls.get_last_error() or "Qdrant collection is unavailable.")
         collection_name = settings.QDRANT_COLLECTION_NAME
 
         query_filter = None
@@ -260,27 +339,48 @@ class VectorDbService:
                 score_threshold=threshold,
                 with_payload=True,
             )
+        except Exception as search_error:
+            cls._init_error = cls.sanitize_error(search_error)
+            logger.error("Semantic search in Qdrant failed: %s", cls._init_error)
+            raise
 
-            results: List[Dict[str, Any]] = []
-            for pt in res.points:
-                payload = pt.payload or {}
-                results.append(
-                    {
-                        "chunk_id": str(pt.id),
-                        "similarity_score": round(float(pt.score), 4),
-                        "text": payload.get("text", ""),
-                        "title": payload.get("title", "Sustainability Document"),
-                        "source": payload.get("source", "CarbonIQ Reference Knowledge"),
-                        "category": payload.get("category", "General"),
-                        "doc_id": payload.get("doc_id"),
-                        "chunk_index": payload.get("chunk_index", 0),
-                        "publication_date": payload.get("publication_date"),
-                    }
-                )
-            return results
-        except Exception as e:
-            logger.error(f"Semantic search in Qdrant failed: {e}")
-            return []
+        results: List[Dict[str, Any]] = []
+        for pt in res.points:
+            payload = pt.payload or {}
+            results.append(
+                {
+                    "chunk_id": str(pt.id),
+                    "similarity_score": round(float(pt.score), 4),
+                    "text": payload.get("text"),
+                    "title": payload.get("title"),
+                    "source": payload.get("source"),
+                    "category": payload.get("category"),
+                    "doc_id": payload.get("doc_id"),
+                    "chunk_index": payload.get("chunk_index", 0),
+                    "publication_date": payload.get("publication_date"),
+                }
+            )
+        return results
+
+    @classmethod
+    def get_document_content_hash(cls, doc_id: str) -> Optional[str]:
+        """Returns a document's indexed content hash without loading its vectors."""
+        client = cls.get_client()
+        if client is None or not cls.ensure_collection():
+            return None
+        points, _ = client.scroll(
+            collection_name=settings.QDRANT_COLLECTION_NAME,
+            scroll_filter=models.Filter(
+                must=[models.FieldCondition(key="doc_id", match=models.MatchValue(value=doc_id))]
+            ),
+            limit=1,
+            with_payload=["content_hash"],
+            with_vectors=False,
+        )
+        if not points or not points[0].payload:
+            return None
+        value = points[0].payload.get("content_hash")
+        return str(value) if value else None
 
     @classmethod
     def delete_document(cls, doc_id: str) -> bool:
@@ -307,7 +407,8 @@ class VectorDbService:
             logger.info(f"Deleted indexed chunks for doc_id='{doc_id}' from '{collection_name}'.")
             return True
         except Exception as e:
-            logger.error(f"Failed to delete doc_id='{doc_id}' from Qdrant: {e}")
+            cls._init_error = cls.sanitize_error(e)
+            logger.error("Failed to delete document chunks from Qdrant: %s", cls._init_error)
             return False
 
     @classmethod

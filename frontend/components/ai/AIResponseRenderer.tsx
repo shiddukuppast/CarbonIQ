@@ -55,6 +55,15 @@ export interface Recommendation {
   action_label?: string
 }
 
+export interface KnowledgeSource {
+  title: string
+  source: string
+  category?: string
+  similarity_score?: number
+  snippet?: string
+  doc_id?: string
+}
+
 export interface StructuredAIResponse {
   intent?: string
   direct_answer?: string
@@ -69,7 +78,8 @@ export interface StructuredAIResponse {
   recommendations?: Recommendation[]
   potential_impact?: string
   supporting_sources?: string[]
-  retrieved_knowledge?: any[]
+  retrieved_knowledge?: KnowledgeSource[]
+  knowledge_retrieval_status?: 'retrieved' | 'no_support' | 'unavailable' | 'error' | 'invalid_payload' | string
   data_limitations?: string[]
   confidence_score?: string | number
   calculation_breakdown?: CalculationBreakdown
@@ -333,6 +343,9 @@ function normalizeAIResponse(
   recommendations: Recommendation[]
   metrics: MetricItem[]
   data_limitations: string[]
+  supporting_sources: string[]
+  retrieved_knowledge: KnowledgeSource[]
+  knowledge_retrieval_status?: string
   reporting_period?: string
   confidence_score?: string | number
   calculation_breakdown?: CalculationBreakdown
@@ -343,6 +356,8 @@ function normalizeAIResponse(
     recommendations: [],
     metrics: [],
     data_limitations: [],
+    supporting_sources: [],
+    retrieved_knowledge: [],
   }
 
   // Step 1: Unpack candidates from structuredPayload and response
@@ -471,6 +486,14 @@ function normalizeAIResponse(
 
     if (Array.isArray(parsedObj.supporting_sources || parsedObj.supportingSources)) {
       result.supporting_sources = (parsedObj.supporting_sources || parsedObj.supportingSources).map(String).filter(Boolean)
+    }
+    if (Array.isArray(parsedObj.retrieved_knowledge)) {
+      result.retrieved_knowledge = parsedObj.retrieved_knowledge.filter(
+        (source: any) => source && typeof source.title === 'string' && typeof source.source === 'string'
+      )
+    }
+    if (typeof parsedObj.knowledge_retrieval_status === 'string') {
+      result.knowledge_retrieval_status = parsedObj.knowledge_retrieval_status
     }
 
     if (parsedObj.potential_impact) {
@@ -878,6 +901,21 @@ export function AIResponseRenderer({
       )}
 
       {/* 8. Verified Knowledge Sources (RAG) */}
+      {parsed.knowledge_retrieval_status && parsed.knowledge_retrieval_status !== 'retrieved' && (
+        <div className="mt-3.5 rounded-xl border border-[#E7DFCC] bg-[#FDFCF8] p-2.5 text-[11px] text-[#69614C] flex items-start gap-2">
+          <AlertCircle size={14} className="shrink-0 text-[#9C8230] mt-0.5" />
+          <div>
+            <span className="font-semibold text-[#544D3B]">Knowledge retrieval: </span>
+            <span>
+              {parsed.knowledge_retrieval_status === 'no_support'
+                ? 'No supporting sustainability documents were found for this answer.'
+                : parsed.knowledge_retrieval_status === 'unavailable'
+                ? 'The knowledge base is unavailable; this answer is not grounded in retrieved documents.'
+                : 'Knowledge retrieval failed; this answer is not grounded in retrieved documents.'}
+            </span>
+          </div>
+        </div>
+      )}
       {parsed.supporting_sources && parsed.supporting_sources.length > 0 && (
         <div className="mt-3.5 pt-3 border-t border-[#DDE7DA]">
           <div className="text-[11px] font-semibold uppercase tracking-wider text-[#4E6454] mb-2 flex items-center gap-1.5">
@@ -895,6 +933,24 @@ export function AIResponseRenderer({
               </span>
             ))}
           </div>
+          {parsed.retrieved_knowledge.length > 0 && (
+            <div className="mt-2 space-y-2">
+              {parsed.retrieved_knowledge.map((item, i) => (
+                <div
+                  key={`knowledge-${i}`}
+                  className="rounded-lg border border-[#D5E3D3] bg-white/80 px-3 py-2 text-[11px]"
+                >
+                  <div className="font-semibold text-[#28352D]">{item.title}</div>
+                  <div className="mt-0.5 text-[#657668]">
+                    {item.source}{item.category ? ` · ${item.category}` : ''}
+                  </div>
+                  {item.snippet && (
+                    <p className="mt-1 leading-relaxed text-[#4F6354]">{item.snippet}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

@@ -1,6 +1,8 @@
 import logging
 import os
-from typing import List, Optional
+from typing import Any, List, Optional
+
+from app.core.config import settings
 
 logger = logging.getLogger("carboniq.rag.embedding")
 
@@ -21,7 +23,7 @@ class EmbeddingService:
     """
 
     _model: Optional[object] = None
-    _model_name: str = "sentence-transformers/all-MiniLM-L6-v2"
+    _model_name: str = settings.EMBEDDING_MODEL_NAME
     _dimension: int = 384
 
     @classmethod
@@ -36,7 +38,14 @@ class EmbeddingService:
             os.environ["TRANSFORMERS_OFFLINE"] = "1"
             from sentence_transformers import SentenceTransformer
             logger.info(f"Loading cached SentenceTransformer model: {cls._model_name}...")
-            cls._model = SentenceTransformer(cls._model_name)
+            model = SentenceTransformer(cls._model_name)
+            actual_dimension = model.get_sentence_embedding_dimension()
+            if actual_dimension != cls._dimension:
+                raise ValueError(
+                    f"Embedding model dimension {actual_dimension} does not match expected "
+                    f"dimension {cls._dimension}."
+                )
+            cls._model = model
             logger.info("SentenceTransformer model successfully initialized.")
         return cls._model
 
@@ -45,9 +54,14 @@ class EmbeddingService:
         """Generates a 384-dimensional vector embedding for a single text query."""
         if not text or not text.strip():
             return [0.0] * cls._dimension
-        model: any = cls.get_model()
+        model: Any = cls.get_model()
         vec = model.encode(text.strip(), convert_to_numpy=True)
-        return vec.tolist()
+        result = vec.tolist()
+        if len(result) != cls._dimension:
+            raise ValueError(
+                f"Generated embedding dimension {len(result)} does not match expected {cls._dimension}."
+            )
+        return result
 
     @classmethod
     def embed_batch(cls, texts: List[str]) -> List[List[float]]:
@@ -55,7 +69,9 @@ class EmbeddingService:
         if not texts:
             return []
         cleaned = [t.strip() if t and t.strip() else "" for t in texts]
-        model: any = cls.get_model()
+        model: Any = cls.get_model()
         vecs = model.encode(cleaned, batch_size=32, convert_to_numpy=True)
-        return [v.tolist() for v in vecs]
-
+        results = [v.tolist() for v in vecs]
+        if any(len(vector) != cls._dimension for vector in results):
+            raise ValueError(f"Generated batch embeddings must all be {cls._dimension}-dimensional.")
+        return results

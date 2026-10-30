@@ -212,6 +212,7 @@ export interface KnowledgeSourceItem {
 export interface StructuredAiPayload {
   intent?: 'direct' | 'comparative' | 'recommendation' | 'analytical' | 'comprehensive' | string
   direct_answer: string
+  knowledge_retrieval_status?: 'retrieved' | 'no_support' | 'unavailable' | 'error' | 'invalid_payload' | string
   explanation?: string
   reporting_period?: string
   metrics?: MetricItem[]

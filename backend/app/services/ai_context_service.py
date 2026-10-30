@@ -243,7 +243,6 @@ class AiContextService:
         rag_data = await RagRetrievalService.retrieve_relevant_knowledge(
             query=user_query,
             category="Electricity and Energy Efficiency",
-            top_k=2,
         )
         if rag_data.get("knowledge_limitation") and not rag_data.get("has_knowledge"):
             limitations.append(f"Knowledge Base: {rag_data['knowledge_limitation']}")
@@ -301,13 +300,14 @@ class AiContextService:
             },
             "retrieved_knowledge": {
                 "has_knowledge": rag_data.get("has_knowledge", False),
+                "retrieval_status": rag_data.get("retrieval_status"),
                 "sources": rag_data.get("sources", []),
                 "chunks": [
                     {
                         "title": c.get("title"),
                         "source": c.get("source"),
                         "category": c.get("category"),
-                        "snippet": c.get("text", "")[:350],
+                        "text": c.get("text"),
                         "similarity_score": c.get("similarity_score"),
                         "doc_id": c.get("doc_id"),
                     }
@@ -483,7 +483,6 @@ class AiContextService:
         rag_data = await RagRetrievalService.retrieve_relevant_knowledge(
             query=user_query,
             category="Transportation and Sustainable Mobility",
-            top_k=2,
         )
         if rag_data.get("knowledge_limitation") and not rag_data.get("has_knowledge"):
             limitations.append(f"Knowledge Base: {rag_data['knowledge_limitation']}")
@@ -525,13 +524,14 @@ class AiContextService:
             "route_optimization_proposal": top_proposal,
             "retrieved_knowledge": {
                 "has_knowledge": rag_data.get("has_knowledge", False),
+                "retrieval_status": rag_data.get("retrieval_status"),
                 "sources": rag_data.get("sources", []),
                 "chunks": [
                     {
                         "title": c.get("title"),
                         "source": c.get("source"),
                         "category": c.get("category"),
-                        "snippet": c.get("text", "")[:350],
+                        "text": c.get("text"),
                         "similarity_score": c.get("similarity_score"),
                         "doc_id": c.get("doc_id"),
                     }
@@ -662,7 +662,6 @@ class AiContextService:
         rag_data = await RagRetrievalService.retrieve_relevant_knowledge(
             query=user_query,
             category="Waste Management and Circular Economy",
-            top_k=2,
         )
         if rag_data.get("knowledge_limitation") and not rag_data.get("has_knowledge"):
             limitations.append(f"Knowledge Base: {rag_data['knowledge_limitation']}")
@@ -701,13 +700,14 @@ class AiContextService:
             ),
             "retrieved_knowledge": {
                 "has_knowledge": rag_data.get("has_knowledge", False),
+                "retrieval_status": rag_data.get("retrieval_status"),
                 "sources": rag_data.get("sources", []),
                 "chunks": [
                     {
                         "title": c.get("title"),
                         "source": c.get("source"),
                         "category": c.get("category"),
-                        "snippet": c.get("text", "")[:350],
+                        "text": c.get("text"),
                         "similarity_score": c.get("similarity_score"),
                         "doc_id": c.get("doc_id"),
                     }
@@ -957,7 +957,6 @@ class AiContextService:
         rag_data = await RagRetrievalService.retrieve_relevant_knowledge(
             query=user_query,
             category=None,
-            top_k=3,
         )
         if rag_data.get("knowledge_limitation") and not rag_data.get("has_knowledge"):
             limitations.append(f"Knowledge Base: {rag_data['knowledge_limitation']}")
@@ -1004,13 +1003,14 @@ class AiContextService:
             "ml_prediction_forecasting": ml_context,
             "retrieved_knowledge": {
                 "has_knowledge": rag_data.get("has_knowledge", False),
+                "retrieval_status": rag_data.get("retrieval_status"),
                 "sources": rag_data.get("sources", []),
                 "chunks": [
                     {
                         "title": c.get("title"),
                         "source": c.get("source"),
                         "category": c.get("category"),
-                        "snippet": c.get("text", "")[:350],
+                        "text": c.get("text"),
                         "similarity_score": c.get("similarity_score"),
                         "doc_id": c.get("doc_id"),
                     }
@@ -1020,4 +1020,3 @@ class AiContextService:
             },
             "data_limitations": limitations,
         }
-

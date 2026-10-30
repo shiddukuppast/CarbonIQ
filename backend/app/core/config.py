@@ -64,7 +64,7 @@ class Settings(BaseSettings):
     # RAG Knowledge Base Settings
     KNOWLEDGE_BASE_DIR: str = "knowledge_base"
     EMBEDDING_MODEL_NAME: str = "sentence-transformers/all-MiniLM-L6-v2"
-    RAG_TOP_K: int = 3
+    RAG_TOP_K: int = 5
     RAG_SCORE_THRESHOLD: float = 0.30
 
     @property
