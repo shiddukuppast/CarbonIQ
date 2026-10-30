@@ -1,0 +1,16 @@
+# Node / Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/.env*.local
+
+# Python
+**/__pycache__/
+*.py[cod]
+backend/venv/
+backend/.env
+backend/.env.*.local
+.pytest_cache/
+
+# General
+.DS_Store
+Thumbs.db

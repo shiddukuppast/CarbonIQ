@@ -1,0 +1,38 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  color-scheme: light;
+  --background: #f7f8f2;
+  --foreground: #28352d;
+  --border: #e0e7de;
+  --ring: #8dae83;
+  --radius: 0.75rem;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-border: var(--border);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) * .65);
+  --radius-md: calc(var(--radius) * .8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.35);
+  --radius-2xl: calc(var(--radius) * 1.65);
+}
+
+* { box-sizing: border-box; border-color: var(--border); }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--background); color: var(--foreground); font-family: Arial, Helvetica, sans-serif; }
+button, input, select { font: inherit; }
+button { cursor: pointer; }
+.field { display: block; width: 100%; margin-top: .45rem; border: 1px solid #e0e7de; border-radius: .65rem; background: #fbfcf8; padding: .65rem .75rem; color: #526358; font-size: .75rem; outline: none; transition: border-color .2s, box-shadow .2s; }
+.field:focus { border-color: #8dae83; box-shadow: 0 0 0 3px rgba(141,174,131,.16); }
+input[type='range'] { height: 5px; cursor: pointer; appearance: none; border-radius: 999px; background: #dce8d9; }
+input[type='range']::-webkit-slider-thumb { appearance: none; width: 18px; height: 18px; border-radius: 50%; background: #285943; border: 3px solid #fff; box-shadow: 0 1px 5px rgba(40,89,67,.24); }
+.recharts-tooltip-wrapper { outline: none; }
+::selection { background: #cfe2ca; color: #234a36; }
