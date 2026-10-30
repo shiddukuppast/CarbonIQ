@@ -4,6 +4,7 @@ import React from 'react'
 import { useRouter } from 'next/navigation'
 import {
   AlertCircle,
+  BookOpen,
   BrainCircuit,
   Calculator,
   CheckCircle2,
@@ -66,6 +67,9 @@ export interface StructuredAIResponse {
   metrics?: MetricItem[]
   key_findings?: KeyFinding[]
   recommendations?: Recommendation[]
+  potential_impact?: string
+  supporting_sources?: string[]
+  retrieved_knowledge?: any[]
   data_limitations?: string[]
   confidence_score?: string | number
   calculation_breakdown?: CalculationBreakdown
@@ -76,6 +80,7 @@ export interface AIResponseRendererProps {
   structuredPayload?: StructuredAIResponse | any
   category?: AICategory
   calculationBreakdown?: CalculationBreakdown
+  supportingSources?: string[]
   timestamp?: string
   className?: string
   onActionClick?: (url: string) => void
@@ -462,6 +467,14 @@ function normalizeAIResponse(
 
     if (Array.isArray(parsedObj.data_limitations)) {
       result.data_limitations = parsedObj.data_limitations.map(String).filter(Boolean)
+    }
+
+    if (Array.isArray(parsedObj.supporting_sources || parsedObj.supportingSources)) {
+      result.supporting_sources = (parsedObj.supporting_sources || parsedObj.supportingSources).map(String).filter(Boolean)
+    }
+
+    if (parsedObj.potential_impact) {
+      result.potential_impact = String(parsedObj.potential_impact)
     }
 
     // If direct_answer was resolved and is not raw JSON, return
@@ -864,7 +877,28 @@ export function AIResponseRenderer({
         </div>
       )}
 
-      {/* 8. Data Boundary / Limitations */}
+      {/* 8. Verified Knowledge Sources (RAG) */}
+      {parsed.supporting_sources && parsed.supporting_sources.length > 0 && (
+        <div className="mt-3.5 pt-3 border-t border-[#DDE7DA]">
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-[#4E6454] mb-2 flex items-center gap-1.5">
+            <BookOpen size={13} className="text-[#285943]" />
+            <span>Verified Knowledge Sources</span>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {parsed.supporting_sources.map((src, i) => (
+              <span
+                key={`src-${i}`}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[#D5E3D3] bg-[#F7FAF6] px-2.5 py-1 text-[11px] font-medium text-[#285943] shadow-2xs"
+              >
+                <span className="h-1.5 w-1.5 rounded-full bg-[#3A7B5E]" />
+                <span>{src}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 9. Data Boundary / Limitations */}
       {parsed.data_limitations.length > 0 && (
         <div className="mt-3 rounded-xl border border-[#E7DFCC] bg-[#FDFCF8] p-2.5 text-[11px] text-[#69614C] flex items-start gap-2">
           <AlertCircle size={14} className="shrink-0 text-[#9C8230] mt-0.5" />

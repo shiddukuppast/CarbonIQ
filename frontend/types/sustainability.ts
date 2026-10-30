@@ -200,6 +200,15 @@ export interface RecommendationItem {
   action_label?: string
 }
 
+export interface KnowledgeSourceItem {
+  title: string
+  source: string
+  category?: string
+  similarity_score?: number
+  snippet?: string
+  doc_id?: string
+}
+
 export interface StructuredAiPayload {
   intent?: 'direct' | 'comparative' | 'recommendation' | 'analytical' | 'comprehensive' | string
   direct_answer: string
@@ -208,6 +217,9 @@ export interface StructuredAiPayload {
   metrics?: MetricItem[]
   key_findings?: KeyFindingItem[]
   recommendations?: RecommendationItem[]
+  potential_impact?: string
+  supporting_sources?: string[]
+  retrieved_knowledge?: KnowledgeSourceItem[]
   data_limitations?: string[]
   confidence_score?: string | number
 }
@@ -228,4 +240,6 @@ export interface AiChatMessage {
   }
   suggestedFollowUps?: string[]
   structuredPayload?: StructuredAiPayload
+  supporting_sources?: string[]
+  retrieved_knowledge?: KnowledgeSourceItem[]
 }

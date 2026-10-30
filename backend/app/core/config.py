@@ -55,6 +55,18 @@ class Settings(BaseSettings):
     ML_MODEL_PATH: str = "carboniq_emissions_model.joblib"
     ML_METADATA_PATH: str = "metrics.json"
 
+    # Qdrant Vector Database Settings
+    QDRANT_URL: Optional[str] = None
+    QDRANT_API_KEY: Optional[str] = None
+    QDRANT_COLLECTION_NAME: str = "carboniq_sustainability"
+    QDRANT_STORAGE_PATH: str = "data/qdrant_storage"
+
+    # RAG Knowledge Base Settings
+    KNOWLEDGE_BASE_DIR: str = "knowledge_base"
+    EMBEDDING_MODEL_NAME: str = "sentence-transformers/all-MiniLM-L6-v2"
+    RAG_TOP_K: int = 3
+    RAG_SCORE_THRESHOLD: float = 0.30
+
     @property
     def cors_origins(self) -> List[str]:
         return [origin.strip() for origin in self.FRONTEND_ORIGINS.split(",") if origin.strip()]

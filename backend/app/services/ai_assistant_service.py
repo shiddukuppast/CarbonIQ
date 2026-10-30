@@ -37,6 +37,7 @@ from app.schemas.ai import (
     AiChatResponse,
     CalculationBreakdown,
     KeyFindingItem,
+    KnowledgeSourceItem,
     MetricItem,
     RecommendationItem,
     StructuredAiPayload,
@@ -208,6 +209,8 @@ def parse_structured_ai_reply(
                 )
 
         limits = [str(x) for x in data.get("data_limitations", []) if x]
+        sources = [str(s) for s in data.get("supporting_sources", []) if s]
+        impact = str(data.get("potential_impact")) if data.get("potential_impact") else None
 
         return StructuredAiPayload(
             intent=data.get("intent", default_intent),
@@ -217,6 +220,8 @@ def parse_structured_ai_reply(
             metrics=metrics,
             key_findings=findings,
             recommendations=recs,
+            potential_impact=impact,
+            supporting_sources=sources,
             data_limitations=limits,
             confidence_score=str(data.get("confidence_score")) if data.get("confidence_score") else None,
         )
@@ -253,6 +258,7 @@ def parse_structured_ai_reply(
         metrics=[],
         key_findings=[],
         recommendations=[],
+        supporting_sources=[],
         data_limitations=[],
     )
 
@@ -303,6 +309,42 @@ class AiAssistantService:
         return cls._groq_client
 
     @classmethod
+    def _attach_rag_knowledge(
+        cls,
+        payload: StructuredAiPayload,
+        context: Dict[str, Any],
+    ) -> List[KnowledgeSourceItem]:
+        """
+        Enriches StructuredAiPayload with verified RAG knowledge items and sources
+        retrieved from Qdrant, preventing citations from being fabricated.
+        """
+        rag_info = context.get("retrieved_knowledge", {})
+        retrieved_sources = rag_info.get("sources", [])
+        knowledge_items: List[KnowledgeSourceItem] = []
+
+        for ch in rag_info.get("chunks", []):
+            knowledge_items.append(
+                KnowledgeSourceItem(
+                    title=ch.get("title", "Sustainability Document"),
+                    source=ch.get("source", "CarbonIQ Knowledge Base"),
+                    category=ch.get("category"),
+                    similarity_score=ch.get("similarity_score"),
+                    snippet=ch.get("snippet") or ch.get("text", "")[:350],
+                    doc_id=ch.get("doc_id"),
+                )
+            )
+
+        # Merge supporting sources deterministically
+        combined_sources = list(payload.supporting_sources)
+        for s in retrieved_sources:
+            if s not in combined_sources:
+                combined_sources.append(s)
+        payload.supporting_sources = combined_sources
+        payload.retrieved_knowledge = knowledge_items
+
+        return knowledge_items
+
+    @classmethod
     async def _call_llm(
         cls,
         system_instruction: str,
@@ -334,15 +376,16 @@ class AiAssistantService:
             f"{system_instruction}\n\n"
             "EVIDENCE-BASED REASONING CONSTRAINTS:\n"
             "1. Answer using the supplied CarbonIQ context and user inquiry. Treat supplied calculated emissions, historical aggregates, and valid model predictions as the sole authoritative values.\n"
-            "2. Do NOT invent activity records, emissions, dates, emission factors, predictions, savings, or model accuracy.\n"
-            "3. Do not claim correlation proves causation. Distinguish observed facts from possible explanations and recommendations.\n"
-            "4. When supplied information is insufficient, clearly state what is missing in data_limitations.\n"
-            "5. Do not claim an action will produce a numerical emissions reduction unless available calculations support it.\n"
-            "6. When discussing future emissions, distinguish validated model predictions from illustrative scenarios.\n"
-            "7. When comparing bus routes, use actual optimization results. Do not invent routes, bus capacities, passenger counts, travel distances, or savings.\n"
-            "8. Use historical trends to personalize recommendations where relevant. Explain recommendations in clear, practical language.\n"
-            "9. Keep direct_answer concise (2-3 sentences). Limit key findings and recommendations to max 2 items each.\n"
-            "10. Respond ONLY with a valid JSON object matching the requested schema without markdown fences."
+            "2. Ground explanations and recommendations in verified workspace records and retrieved sustainability knowledge chunks. When referencing external benchmarks or standards, cite the actual retrieved sources (e.g. CEA, GHG Protocol, IPCC).\n"
+            "3. Do NOT invent activity records, emissions, dates, emission factors, predictions, savings, or external source citations.\n"
+            "4. Do not claim correlation proves causation. Distinguish observed facts from possible explanations and recommendations.\n"
+            "5. When supplied information is insufficient or no external documents are retrieved, clearly state what is missing in data_limitations.\n"
+            "6. Do not claim an action will produce a numerical emissions reduction unless available calculations support it.\n"
+            "7. When discussing future emissions, distinguish validated model predictions from illustrative scenarios.\n"
+            "8. When comparing bus routes, use actual optimization results. Do not invent routes, bus capacities, passenger counts, travel distances, or savings.\n"
+            "9. Use historical trends to personalize recommendations where relevant. Explain recommendations in clear, practical language.\n"
+            "10. Keep direct_answer concise (2-3 sentences). Limit key findings and recommendations to max 2 items each.\n"
+            "11. Respond ONLY with a valid JSON object matching the requested schema without markdown fences."
         )
 
         # Minified JSON context to save prompt token bandwidth and processing time
@@ -584,6 +627,9 @@ class AiAssistantService:
         )
         t_parse = (time.perf_counter() - t_parse_start) * 1000
 
+        # Attach retrieved RAG knowledge & verified sources
+        knowledge_items = cls._attach_rag_knowledge(structured_payload, context)
+
         t_total = (time.perf_counter() - t_start) * 1000
         logger.info(
             "AI [electricity] perf: total=%.1fms (ctx=%.1fms, llm=%.1fms, parse=%.1fms, cached=False)",
@@ -596,6 +642,8 @@ class AiAssistantService:
             timestamp=timestamp,
             calculation_breakdown=calculation_breakdown,
             structured_payload=structured_payload,
+            supporting_sources=structured_payload.supporting_sources,
+            retrieved_knowledge=knowledge_items,
             meta={
                 "timing_ms": {
                     "context": round(t_ctx, 1),
@@ -732,6 +780,9 @@ class AiAssistantService:
         )
         t_parse = (time.perf_counter() - t_parse_start) * 1000
 
+        # Attach retrieved RAG knowledge & verified sources
+        knowledge_items = cls._attach_rag_knowledge(structured_payload, context)
+
         t_total = (time.perf_counter() - t_start) * 1000
         logger.info(
             "AI [transportation] perf: total=%.1fms (ctx=%.1fms, llm=%.1fms, parse=%.1fms, cached=False)",
@@ -744,6 +795,8 @@ class AiAssistantService:
             timestamp=timestamp,
             calculation_breakdown=calculation_breakdown,
             structured_payload=structured_payload,
+            supporting_sources=structured_payload.supporting_sources,
+            retrieved_knowledge=knowledge_items,
             meta={
                 "timing_ms": {
                     "context": round(t_ctx, 1),
@@ -874,6 +927,9 @@ class AiAssistantService:
         )
         t_parse = (time.perf_counter() - t_parse_start) * 1000
 
+        # Attach retrieved RAG knowledge & verified sources
+        knowledge_items = cls._attach_rag_knowledge(structured_payload, context)
+
         t_total = (time.perf_counter() - t_start) * 1000
         logger.info(
             "AI [waste] perf: total=%.1fms (ctx=%.1fms, llm=%.1fms, parse=%.1fms, cached=False)",
@@ -886,6 +942,8 @@ class AiAssistantService:
             timestamp=timestamp,
             calculation_breakdown=calculation_breakdown,
             structured_payload=structured_payload,
+            supporting_sources=structured_payload.supporting_sources,
+            retrieved_knowledge=knowledge_items,
             meta={
                 "timing_ms": {
                     "context": round(t_ctx, 1),
@@ -1035,6 +1093,9 @@ class AiAssistantService:
         )
         t_parse = (time.perf_counter() - t_parse_start) * 1000
 
+        # Attach retrieved RAG knowledge & verified sources
+        knowledge_items = cls._attach_rag_knowledge(structured_payload, context)
+
         # Build verified structured report for dashboard analytics view
         structured_report = {
             "status": "success",
@@ -1048,6 +1109,9 @@ class AiAssistantService:
             "categories": context.get("categories_summary", []),
             "key_findings": [kf.model_dump() for kf in structured_payload.key_findings],
             "recommendations": [rec.model_dump() for rec in structured_payload.recommendations],
+            "potential_impact": structured_payload.potential_impact,
+            "supporting_sources": structured_payload.supporting_sources,
+            "retrieved_knowledge": [ki.model_dump() for ki in knowledge_items],
             "data_limitations": structured_payload.data_limitations or context.get("data_limitations", []),
             "ml_prediction_forecasting": context.get("ml_prediction_forecasting"),
         }
@@ -1065,6 +1129,8 @@ class AiAssistantService:
             calculation_breakdown=calculation_breakdown,
             structured_report=structured_report,
             structured_payload=structured_payload,
+            supporting_sources=structured_payload.supporting_sources,
+            retrieved_knowledge=knowledge_items,
             meta={
                 "timing_ms": {
                     "context": round(t_ctx, 1),

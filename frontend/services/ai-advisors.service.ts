@@ -34,6 +34,8 @@ export const aiAdvisorsService = {
         calculationBreakdown: backendRes.calculation_breakdown,
         suggestedFollowUps: backendRes.suggested_follow_ups,
         structuredPayload: backendRes.structured_payload,
+        supporting_sources: backendRes.supporting_sources || backendRes.structured_payload?.supporting_sources,
+        retrieved_knowledge: backendRes.retrieved_knowledge || backendRes.structured_payload?.retrieved_knowledge,
       }
     } catch (err: any) {
       return {
@@ -64,6 +66,8 @@ export const aiAdvisorsService = {
         calculationBreakdown: backendRes.calculation_breakdown,
         suggestedFollowUps: backendRes.suggested_follow_ups,
         structuredPayload: backendRes.structured_payload,
+        supporting_sources: backendRes.supporting_sources || backendRes.structured_payload?.supporting_sources,
+        retrieved_knowledge: backendRes.retrieved_knowledge || backendRes.structured_payload?.retrieved_knowledge,
       }
     } catch (err: any) {
       return {
@@ -94,6 +98,8 @@ export const aiAdvisorsService = {
         calculationBreakdown: backendRes.calculation_breakdown,
         suggestedFollowUps: backendRes.suggested_follow_ups,
         structuredPayload: backendRes.structured_payload,
+        supporting_sources: backendRes.supporting_sources || backendRes.structured_payload?.supporting_sources,
+        retrieved_knowledge: backendRes.retrieved_knowledge || backendRes.structured_payload?.retrieved_knowledge,
       }
     } catch (err: any) {
       return {
@@ -121,6 +127,8 @@ export const aiAdvisorsService = {
         calculationBreakdown: backendRes.calculation_breakdown,
         suggestedFollowUps: backendRes.suggested_follow_ups,
         structuredPayload: backendRes.structured_payload,
+        supporting_sources: backendRes.supporting_sources || backendRes.structured_payload?.supporting_sources,
+        retrieved_knowledge: backendRes.retrieved_knowledge || backendRes.structured_payload?.retrieved_knowledge,
       }
     } catch (err: any) {
       return {

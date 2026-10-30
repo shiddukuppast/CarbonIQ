@@ -11,6 +11,7 @@ from app.calculations.route_optimizer import optimize_bus_routes
 from app.calculations.waste_calculator import calculate_recycling_rate
 from app.data.emission_factors import EMISSION_FACTORS
 from app.services.ml_prediction_service import MlPredictionService
+from app.services.rag_retrieval_service import RagRetrievalService
 from app.utils.dates import normalize_month
 
 logger = logging.getLogger("carboniq.ai.context")
@@ -238,6 +239,15 @@ class AiContextService:
         if total_bill == 0.0:
             limitations.append("Electricity bills (INR) not recorded; financial estimates use CEA benchmark commercial tariff of ₹8.0/kWh.")
 
+        # RAG External Sustainability Knowledge Retrieval
+        rag_data = await RagRetrievalService.retrieve_relevant_knowledge(
+            query=user_query,
+            category="Electricity and Energy Efficiency",
+            top_k=2,
+        )
+        if rag_data.get("knowledge_limitation") and not rag_data.get("has_knowledge"):
+            limitations.append(f"Knowledge Base: {rag_data['knowledge_limitation']}")
+
         return {
             "module": "electricity",
             "workspace": meta,
@@ -288,6 +298,22 @@ class AiContextService:
                 "value": grid_factor.value,
                 "unit": grid_factor.unit,
                 "source": grid_factor.source,
+            },
+            "retrieved_knowledge": {
+                "has_knowledge": rag_data.get("has_knowledge", False),
+                "sources": rag_data.get("sources", []),
+                "chunks": [
+                    {
+                        "title": c.get("title"),
+                        "source": c.get("source"),
+                        "category": c.get("category"),
+                        "snippet": c.get("text", "")[:350],
+                        "similarity_score": c.get("similarity_score"),
+                        "doc_id": c.get("doc_id"),
+                    }
+                    for c in rag_data.get("chunks", [])
+                ],
+                "knowledge_limitation": rag_data.get("knowledge_limitation"),
             },
             "data_limitations": limitations,
         }
@@ -453,6 +479,15 @@ class AiContextService:
         if len(sorted_months) < 2:
             limitations.append("Single-period dataset; month-over-month mobility trend comparisons require multiple observations.")
 
+        # RAG External Sustainability Knowledge Retrieval
+        rag_data = await RagRetrievalService.retrieve_relevant_knowledge(
+            query=user_query,
+            category="Transportation and Sustainable Mobility",
+            top_k=2,
+        )
+        if rag_data.get("knowledge_limitation") and not rag_data.get("has_knowledge"):
+            limitations.append(f"Knowledge Base: {rag_data['knowledge_limitation']}")
+
         return {
             "module": "transportation",
             "workspace": meta,
@@ -488,6 +523,22 @@ class AiContextService:
                 "peak_fuel_route": peak_fuel_route,
             },
             "route_optimization_proposal": top_proposal,
+            "retrieved_knowledge": {
+                "has_knowledge": rag_data.get("has_knowledge", False),
+                "sources": rag_data.get("sources", []),
+                "chunks": [
+                    {
+                        "title": c.get("title"),
+                        "source": c.get("source"),
+                        "category": c.get("category"),
+                        "snippet": c.get("text", "")[:350],
+                        "similarity_score": c.get("similarity_score"),
+                        "doc_id": c.get("doc_id"),
+                    }
+                    for c in rag_data.get("chunks", [])
+                ],
+                "knowledge_limitation": rag_data.get("knowledge_limitation"),
+            },
             "data_limitations": limitations,
         }
 
@@ -607,6 +658,15 @@ class AiContextService:
         if len(sorted_months) < 2:
             limitations.append("Waste trend analysis requires at least two recorded monthly collection cycles.")
 
+        # RAG External Sustainability Knowledge Retrieval
+        rag_data = await RagRetrievalService.retrieve_relevant_knowledge(
+            query=user_query,
+            category="Waste Management and Circular Economy",
+            top_k=2,
+        )
+        if rag_data.get("knowledge_limitation") and not rag_data.get("has_knowledge"):
+            limitations.append(f"Knowledge Base: {rag_data['knowledge_limitation']}")
+
         return {
             "module": "waste",
             "workspace": meta,
@@ -639,6 +699,22 @@ class AiContextService:
                 "Under IPCC guidelines and GHG Protocol Scope 3, recycling and composting yield negative emissions "
                 "representing avoided landfill methane. This represents an avoided emission credit, not active carbon removal."
             ),
+            "retrieved_knowledge": {
+                "has_knowledge": rag_data.get("has_knowledge", False),
+                "sources": rag_data.get("sources", []),
+                "chunks": [
+                    {
+                        "title": c.get("title"),
+                        "source": c.get("source"),
+                        "category": c.get("category"),
+                        "snippet": c.get("text", "")[:350],
+                        "similarity_score": c.get("similarity_score"),
+                        "doc_id": c.get("doc_id"),
+                    }
+                    for c in rag_data.get("chunks", [])
+                ],
+                "knowledge_limitation": rag_data.get("knowledge_limitation"),
+            },
             "data_limitations": limitations,
         }
 
@@ -877,6 +953,15 @@ class AiContextService:
         if len(waste_records) == 0:
             limitations.append("Solid waste streams unrecorded for this workspace.")
 
+        # RAG External Sustainability Knowledge Retrieval (Cross-category synthesis)
+        rag_data = await RagRetrievalService.retrieve_relevant_knowledge(
+            query=user_query,
+            category=None,
+            top_k=3,
+        )
+        if rag_data.get("knowledge_limitation") and not rag_data.get("has_knowledge"):
+            limitations.append(f"Knowledge Base: {rag_data['knowledge_limitation']}")
+
         return {
             "module": "insights",
             "workspace": meta,
@@ -917,6 +1002,22 @@ class AiContextService:
             "categories_summary": categories_data,
             "bus_fleet_opportunity": route_opportunity,
             "ml_prediction_forecasting": ml_context,
+            "retrieved_knowledge": {
+                "has_knowledge": rag_data.get("has_knowledge", False),
+                "sources": rag_data.get("sources", []),
+                "chunks": [
+                    {
+                        "title": c.get("title"),
+                        "source": c.get("source"),
+                        "category": c.get("category"),
+                        "snippet": c.get("text", "")[:350],
+                        "similarity_score": c.get("similarity_score"),
+                        "doc_id": c.get("doc_id"),
+                    }
+                    for c in rag_data.get("chunks", [])
+                ],
+                "knowledge_limitation": rag_data.get("knowledge_limitation"),
+            },
             "data_limitations": limitations,
         }
 

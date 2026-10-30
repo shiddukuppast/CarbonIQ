@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 from app.api.router import api_router
 from app.core.config import settings
 from app.db.mongodb import close_mongo_connection, connect_to_mongo, mongo_manager
+from app.services.vector_db_service import VectorDbService
 
 # Configure structured logging
 logging.basicConfig(
@@ -18,12 +19,23 @@ logger = logging.getLogger("carboniq.main")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Manages application lifecycle: connects to MongoDB on boot, cleans up on shutdown."""
+    """Manages application lifecycle: connects to MongoDB and initializes vector DB on boot."""
     logger.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION} [{settings.ENVIRONMENT}]")
     await connect_to_mongo()
+    # Initialize Qdrant client connection pool non-blockingly
+    try:
+        VectorDbService.get_client()
+    except Exception as qdrant_err:
+        logger.warning(f"Qdrant vector database startup note: {qdrant_err}")
+
     yield
+
     logger.info("Shutting down CarbonIQ API service...")
     await close_mongo_connection()
+    try:
+        VectorDbService.close()
+    except Exception:
+        pass
 
 
 app = FastAPI(
@@ -49,9 +61,10 @@ app.add_middleware(
 @app.get("/health", tags=["System"])
 async def health_check() -> JSONResponse:
     """
-    Health check endpoint returning application status and database connectivity.
+    Health check endpoint returning application status, database connectivity, and vector DB status.
     """
     db_status = "connected" if mongo_manager.is_connected else "disconnected"
+    vdb_status = "available" if VectorDbService.is_available() else "unavailable"
     return JSONResponse(
         status_code=status.HTTP_200_OK,
         content={
@@ -60,6 +73,7 @@ async def health_check() -> JSONResponse:
             "version": settings.APP_VERSION,
             "environment": settings.ENVIRONMENT,
             "database": db_status,
+            "vector_database": vdb_status,
         },
     )
 

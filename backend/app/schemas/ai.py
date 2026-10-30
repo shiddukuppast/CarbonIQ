@@ -55,6 +55,15 @@ class MetricItem(BaseModel):
     trend: Optional[str] = None  # "up" | "down" | "neutral"
 
 
+class KnowledgeSourceItem(BaseModel):
+    title: str
+    source: str
+    category: Optional[str] = None
+    similarity_score: Optional[float] = None
+    snippet: Optional[str] = None
+    doc_id: Optional[str] = None
+
+
 class StructuredAiPayload(BaseModel):
     intent: Optional[str] = "direct"  # "direct" | "analytical" | "comparative" | "recommendation" | "comprehensive"
     direct_answer: str
@@ -63,6 +72,9 @@ class StructuredAiPayload(BaseModel):
     metrics: List[MetricItem] = Field(default_factory=list)
     key_findings: List[KeyFindingItem] = Field(default_factory=list)
     recommendations: List[RecommendationItem] = Field(default_factory=list)
+    potential_impact: Optional[str] = None
+    supporting_sources: List[str] = Field(default_factory=list)
+    retrieved_knowledge: List[KnowledgeSourceItem] = Field(default_factory=list)
     data_limitations: List[str] = Field(default_factory=list)
     confidence_score: Optional[str] = None
 
@@ -79,6 +91,9 @@ class SustainabilityReport(BaseModel):
     categories: List[StructuredCategoryItem] = Field(default_factory=list)
     key_findings: List[KeyFindingItem] = Field(default_factory=list)
     recommendations: List[RecommendationItem] = Field(default_factory=list)
+    potential_impact: Optional[str] = None
+    supporting_sources: List[str] = Field(default_factory=list)
+    retrieved_knowledge: List[KnowledgeSourceItem] = Field(default_factory=list)
     data_limitations: List[str] = Field(default_factory=list)
 
 
@@ -91,4 +106,6 @@ class AiChatResponse(BaseModel):
     suggested_follow_ups: List[str] = Field(default_factory=list)
     structured_report: Optional[Dict[str, Any]] = None
     structured_payload: Optional[StructuredAiPayload] = None
+    supporting_sources: List[str] = Field(default_factory=list)
+    retrieved_knowledge: List[KnowledgeSourceItem] = Field(default_factory=list)
     meta: Optional[Dict[str, Any]] = None
